@@ -68,6 +68,19 @@ func createUser(t *testing.T, pool *pgxpool.Pool, username, plaintextPassword st
 	return id
 }
 
+func TestDummyHashIsValid(t *testing.T) {
+	// The unknown-username path relies on dummyHash being a well-formed
+	// argon2id hash so password.Verify burns full verification time. A
+	// malformed constant would fail fast and reopen the timing side-channel.
+	match, err := password.Verify("any-password", dummyHash)
+	if err != nil {
+		t.Fatalf("dummyHash is malformed: %v", err)
+	}
+	if match {
+		t.Fatal("dummyHash unexpectedly matches an arbitrary password")
+	}
+}
+
 func TestLoginSuccess(t *testing.T) {
 	pool := testPool(t)
 	wantID := createUser(t, pool, "admin", "correct-password")

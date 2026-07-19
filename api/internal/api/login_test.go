@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,21 @@ func TestLoginMalformedBody(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestLoginBodyTooLarge(t *testing.T) {
+	pool := testAuthPool(t)
+	svc := auth.NewService(pool, testSigner(t))
+	handler := loginHandler(svc, newLoginRateLimiter(loginRateLimit, loginRateWindow))
+
+	body := bytes.NewBufferString(`{"username":"admin","password":"` + strings.Repeat("a", 1<<20) + `"}`)
+	req := httptest.NewRequest(http.MethodPost, "/login", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 

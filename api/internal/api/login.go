@@ -27,6 +27,8 @@ func loginHandler(svc *auth.Service, limiter *loginRateLimiter) http.HandlerFunc
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
 		var req loginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSONError(w, http.StatusBadRequest, "invalid request body")

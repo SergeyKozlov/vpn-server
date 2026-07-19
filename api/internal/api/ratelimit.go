@@ -59,6 +59,10 @@ func (l *loginRateLimiter) allow(key string) bool {
 	return true
 }
 
+// clientIP returns the request's network peer address. TODO: once the API
+// sits behind the planned Caddy reverse proxy, RemoteAddr is always the
+// proxy — switch to X-Forwarded-For (trusting only the local proxy hop),
+// or every internet client will share one rate-limit bucket.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
