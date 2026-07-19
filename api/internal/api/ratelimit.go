@@ -38,6 +38,14 @@ func (l *loginRateLimiter) allow(key string) bool {
 	defer l.mu.Unlock()
 
 	now := time.Now()
+
+	// Prune expired entries opportunistically while holding the mutex.
+	for ip, w := range l.attempts {
+		if now.Sub(w.windowFrom) > l.window {
+			delete(l.attempts, ip)
+		}
+	}
+
 	w, ok := l.attempts[key]
 	if !ok || now.Sub(w.windowFrom) > l.window {
 		l.attempts[key] = &attemptWindow{count: 1, windowFrom: now}

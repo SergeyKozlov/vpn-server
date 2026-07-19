@@ -50,6 +50,21 @@ func TestLoginRateLimiterResetsAfterWindow(t *testing.T) {
 	}
 }
 
+func TestLoginRateLimiterEvictsStaleEntries(t *testing.T) {
+	limiter := newLoginRateLimiter(1, 10*time.Millisecond)
+
+	limiter.allow("1.2.3.4")
+	time.Sleep(20 * time.Millisecond)
+	limiter.allow("5.6.7.8")
+
+	limiter.mu.Lock()
+	_, stale := limiter.attempts["1.2.3.4"]
+	limiter.mu.Unlock()
+	if stale {
+		t.Fatal("expected stale entry for 1.2.3.4 to be evicted")
+	}
+}
+
 func TestClientIPSplitsPort(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "203.0.113.5:54321"
