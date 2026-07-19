@@ -1,0 +1,11 @@
+.env
+pgdata/
+
+# Go
+api/vpn-api
+*.exe
+*.test
+*.out
+
+# OS
+.DS_Store

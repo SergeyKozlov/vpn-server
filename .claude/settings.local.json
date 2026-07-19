@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(python3 *)",
+      "Bash(apt-cache policy *)"
+    ]
+  },
+  "enabledPlugins": {}
+}
