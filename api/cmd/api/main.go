@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"vpn-api/internal/api"
+	"vpn-api/internal/auth"
 	"vpn-api/internal/clients"
 	"vpn-api/internal/config"
 	"vpn-api/internal/crypto"
 	"vpn-api/internal/database"
+	"vpn-api/internal/session"
 	"vpn-api/internal/xui"
 )
 
@@ -56,9 +58,20 @@ func run() error {
 		return err
 	}
 
+	sessionKey, err := session.DecodeKey(cfg.SessionSigningKey)
+	if err != nil {
+		return err
+	}
+	signer, err := session.NewSigner(sessionKey)
+	if err != nil {
+		return err
+	}
+
+	authSvc := auth.NewService(pool, signer)
+
 	clientsSvc := clients.NewService(pool, panel, cryptor, cfg.XUIInboundID, cfg.HysteriaConfigPath, cfg.HysteriaReloadCommand)
 
-	r := api.NewRouter(pool, clientsSvc)
+	r := api.NewRouter(pool, clientsSvc, authSvc, signer)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
