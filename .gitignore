@@ -1,5 +1,10 @@
 .env
 pgdata/
+# TLS cert/key and config.yaml (holds plaintext userpass credentials once
+# internal/hysteria.SyncUsers runs) — not for version control.
+hysteria/*.pem
+hysteria/*.key
+hysteria/config.yaml
 
 # Go
 api/vpn-api

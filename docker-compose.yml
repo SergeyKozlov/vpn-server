@@ -28,6 +28,31 @@ services:
       timeout: 5s
       retries: 5
 
+  hysteria2:
+    image: tobyxdd/hysteria:latest
+    container_name: hysteria2
+    command: server -c /etc/hysteria/config.yaml
+    volumes:
+      - ./hysteria/:/etc/hysteria/
+    network_mode: host
+    restart: unless-stopped
+
+  caddy:
+    image: ghcr.io/iarekylew00t/caddy-cloudflare:latest
+    container_name: caddy
+    env_file:
+      - .env
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    network_mode: host
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
+
 networks:
   vpn-net:
     driver: bridge

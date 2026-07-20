@@ -1,0 +1,10 @@
+{
+	email ops@videcdn.net
+}
+
+api.videcdn.net:8443 {
+	tls {
+		dns cloudflare {env.CF_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8080
+}

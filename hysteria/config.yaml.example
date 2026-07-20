@@ -1,0 +1,13 @@
+listen: :8443
+
+tls:
+  cert: /etc/hysteria/cert.pem
+  key: /etc/hysteria/key.key
+
+auth:
+  type: userpass
+  userpass:
+    # Bootstrap placeholder so the server can start with zero real clients.
+    # internal/hysteria.SyncUsers overwrites this map wholesale on the first
+    # client sync — this entry disappears once any real client exists.
+    _bootstrap_no_access: REPLACE_ME__random-placeholder-password
