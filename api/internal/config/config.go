@@ -10,7 +10,8 @@ type Config struct {
 	Port        string
 	DatabaseURL string
 
-	EncryptionKey string // base64-encoded 32-byte AES-256 key
+	EncryptionKey     string // base64-encoded 32-byte AES-256 key
+	SessionSigningKey string // base64-encoded 32-byte HMAC key for session cookies
 
 	XUIBaseURL   string // must include the panel's webBasePath
 	XUIAPIToken  string
@@ -27,6 +28,11 @@ func Load() (*Config, error) {
 	}
 
 	encryptionKey, err := requireEnv("APP_ENC_KEY")
+	if err != nil {
+		return nil, err
+	}
+
+	sessionSigningKey, err := requireEnv("SESSION_SIGNING_KEY")
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +74,7 @@ func Load() (*Config, error) {
 		Port:                  port,
 		DatabaseURL:           databaseURL,
 		EncryptionKey:         encryptionKey,
+		SessionSigningKey:     sessionSigningKey,
 		XUIBaseURL:            xuiBaseURL,
 		XUIAPIToken:           xuiAPIToken,
 		XUIInboundID:          xuiInboundID,

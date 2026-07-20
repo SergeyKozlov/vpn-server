@@ -32,6 +32,8 @@ type createClientResponse struct {
 
 func createClientHandler(svc *clients.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
 		var req createClientRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 			writeJSONError(w, http.StatusBadRequest, "invalid request body")

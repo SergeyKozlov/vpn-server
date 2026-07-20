@@ -13,8 +13,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"vpn-api/internal/auth"
 	"vpn-api/internal/clients"
 	appcrypto "vpn-api/internal/crypto"
+	"vpn-api/internal/session"
 	"vpn-api/internal/xui"
 )
 
@@ -42,7 +44,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-func testRouter(t *testing.T) http.Handler {
+func testRouter(t *testing.T) (http.Handler, *session.Signer) {
 	t.Helper()
 
 	pool := testPool(t)
@@ -73,14 +75,24 @@ func testRouter(t *testing.T) http.Handler {
 	}
 
 	clientsSvc := clients.NewService(pool, panel, cryptor, 1, configPath, "true")
-	return NewRouter(pool, clientsSvc)
+
+	signer := testSigner(t)
+	authSvc := auth.NewService(pool, signer)
+
+	return NewRouter(pool, clientsSvc, authSvc, signer), signer
+}
+
+func authCookie(signer *session.Signer) *http.Cookie {
+	token, expiresAt := signer.Sign(1)
+	return &http.Cookie{Name: sessionCookieName, Value: token, Expires: expiresAt}
 }
 
 func TestCreateClientEndpointSuccess(t *testing.T) {
-	router := testRouter(t)
+	router, signer := testRouter(t)
 
 	body := bytes.NewBufferString(`{"traffic_limit_bytes": 1073741824, "limit_ip": 3}`)
 	req := httptest.NewRequest(http.MethodPost, "/clients", body)
+	req.AddCookie(authCookie(signer))
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -104,9 +116,10 @@ func TestCreateClientEndpointSuccess(t *testing.T) {
 }
 
 func TestCreateClientEndpointEmptyBodyUsesDefaults(t *testing.T) {
-	router := testRouter(t)
+	router, signer := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", nil)
+	req.AddCookie(authCookie(signer))
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -117,9 +130,10 @@ func TestCreateClientEndpointEmptyBodyUsesDefaults(t *testing.T) {
 }
 
 func TestCreateClientEndpointInvalidJSON(t *testing.T) {
-	router := testRouter(t)
+	router, signer := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{not json`))
+	req.AddCookie(authCookie(signer))
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -130,14 +144,28 @@ func TestCreateClientEndpointInvalidJSON(t *testing.T) {
 }
 
 func TestCreateClientEndpointNegativeTrafficLimit(t *testing.T) {
-	router := testRouter(t)
+	router, signer := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{"traffic_limit_bytes": -1}`))
+	req.AddCookie(authCookie(signer))
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestCreateClientEndpointRequiresAuth(t *testing.T) {
+	router, _ := testRouter(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{}`))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }

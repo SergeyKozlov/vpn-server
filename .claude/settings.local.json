@@ -3,7 +3,14 @@
     "allow": [
       "Bash(python3 -c ' *)",
       "Bash(python3 *)",
-      "Bash(apt-cache policy *)"
+      "Bash(apt-cache policy *)",
+      "Bash(git -C /root/vpn show 06c76dd --stat)",
+      "Bash(docker compose *)",
+      "Bash(curl -sS -c /tmp/smoketest-cookies.txt -o /tmp/login_resp.txt -w 'login: %{http_code}\\\\n' -X POST http://127.0.0.1:18080/login -d '{\"username\":\"smoketest\",\"password\":\"smoketest-password-123\"}')",
+      "Bash(curl -sS -o /tmp/noauth_resp.txt -w 'no-cookie clients: %{http_code}\\\\n' -X POST http://127.0.0.1:18080/clients -d '{}')",
+      "Bash(curl -sS -b /tmp/smoketest-cookies.txt -o /tmp/auth_resp.txt -w 'with-cookie clients: %{http_code}\\\\n' -X POST http://127.0.0.1:18080/clients -d '{}')",
+      "Read(//tmp/**)",
+      "Bash(xargs -I{} basename {})"
     ]
   },
   "enabledPlugins": {}
