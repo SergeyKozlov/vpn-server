@@ -1,30 +1,62 @@
 package api
 
 import (
-	"crypto/rand"
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vpn-api/internal/session"
 )
 
-func testSigner(t *testing.T) *session.Signer {
+func testMiddlewarePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	key := make([]byte, session.KeySize)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatalf("generate key: %v", err)
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping integration test")
 	}
-	signer, err := session.NewSigner(key)
+
+	pool, err := pgxpool.New(context.Background(), dsn)
 	if err != nil {
-		t.Fatalf("NewSigner: %v", err)
+		t.Fatalf("connect pool: %v", err)
 	}
-	return signer
+	t.Cleanup(pool.Close)
+
+	clean := func() {
+		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
+			t.Fatalf("clean sessions table: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
+			t.Fatalf("clean admins table: %v", err)
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+
+	return pool
+}
+
+func testAdminID(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO admins (username, password_hash) VALUES ($1, 'x') RETURNING id`,
+		uuid.NewString()).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert test admin: %v", err)
+	}
+	return id
 }
 
 func TestRequireAuthNoCookie(t *testing.T) {
-	signer := testSigner(t)
-	handler := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	pool := testMiddlewarePool(t)
+	sm := session.NewManager(pool)
+	handler := RequireAuth(sm)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -38,8 +70,9 @@ func TestRequireAuthNoCookie(t *testing.T) {
 }
 
 func TestRequireAuthInvalidCookie(t *testing.T) {
-	signer := testSigner(t)
-	handler := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	pool := testMiddlewarePool(t)
+	sm := session.NewManager(pool)
+	handler := RequireAuth(sm)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -53,18 +86,51 @@ func TestRequireAuthInvalidCookie(t *testing.T) {
 	}
 }
 
-func TestRequireAuthValidCookie(t *testing.T) {
-	signer := testSigner(t)
-	token, expiresAt := signer.Sign(42)
+func TestRequireAuthExpiredCookie(t *testing.T) {
+	pool := testMiddlewarePool(t)
+	sm := session.NewManager(pool)
+	userID := testAdminID(t, pool)
 
-	called := false
-	handler := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
+	token, err := sm.CreateSession(context.Background(), userID, -time.Minute)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	handler := RequireAuth(sm)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token, Expires: expiresAt})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token.Value})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRequireAuthValidCookie(t *testing.T) {
+	pool := testMiddlewarePool(t)
+	sm := session.NewManager(pool)
+	userID := testAdminID(t, pool)
+
+	token, err := sm.CreateSession(context.Background(), userID, session.DefaultTTL)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	called := false
+	handler := RequireAuth(sm)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if got := r.Context().Value(userIDContextKey); got != userID {
+			t.Errorf("context userID = %v, want %v", got, userID)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token.Value, Expires: token.ExpiresAt})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

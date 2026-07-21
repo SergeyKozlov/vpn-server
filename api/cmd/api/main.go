@@ -59,22 +59,14 @@ func run() error {
 		return err
 	}
 
-	sessionKey, err := session.DecodeKey(cfg.SessionSigningKey)
-	if err != nil {
-		return err
-	}
-	signer, err := session.NewSigner(sessionKey)
-	if err != nil {
-		return err
-	}
-
-	authSvc := auth.NewService(pool, signer)
+	sm := session.NewManager(pool)
+	authSvc := auth.NewService(pool, sm)
 
 	vlessProvisioner := provisioner.NewThreeXUIProvisioner(panel, cfg.XUIInboundID)
 	h2Provisioner := provisioner.NewHysteria2Provisioner(cfg.HysteriaConfigPath, cfg.HysteriaReloadCommand)
 	clientsSvc := clients.NewService(pool, vlessProvisioner, h2Provisioner, cryptor, cfg.XUIInboundID)
 
-	r := api.NewRouter(pool, clientsSvc, authSvc, signer)
+	r := api.NewRouter(pool, clientsSvc, authSvc, sm)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

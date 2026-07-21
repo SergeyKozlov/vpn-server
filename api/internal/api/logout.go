@@ -1,12 +1,24 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"time"
+
+	"vpn-api/internal/auth"
 )
 
-func logoutHandler() http.HandlerFunc {
+func logoutHandler(svc *auth.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(sessionCookieName)
+		if err == nil {
+			if err := svc.Logout(r.Context(), cookie.Value); err != nil {
+				log.Printf("logout: %v", err)
+				writeJSONError(w, http.StatusInternalServerError, "logout failed")
+				return
+			}
+		}
+
 		http.SetCookie(w, &http.Cookie{
 			Name:     sessionCookieName,
 			Value:    "",

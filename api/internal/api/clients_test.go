@@ -16,6 +16,7 @@ import (
 	"vpn-api/internal/auth"
 	"vpn-api/internal/clients"
 	appcrypto "vpn-api/internal/crypto"
+	"vpn-api/internal/password"
 	"vpn-api/internal/provisioner"
 	"vpn-api/internal/session"
 	"vpn-api/internal/xui"
@@ -38,6 +39,12 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		if _, err := pool.Exec(context.Background(), "DELETE FROM legacy_clients_phase1"); err != nil {
 			t.Fatalf("clean legacy_clients_phase1 table: %v", err)
 		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
+			t.Fatalf("clean sessions table: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
+			t.Fatalf("clean admins table: %v", err)
+		}
 	}
 	clean()
 	t.Cleanup(clean)
@@ -45,7 +52,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-func testRouter(t *testing.T) (http.Handler, *session.Signer) {
+func testRouter(t *testing.T) (http.Handler, *http.Cookie) {
 	t.Helper()
 
 	pool := testPool(t)
@@ -79,23 +86,33 @@ func testRouter(t *testing.T) (http.Handler, *session.Signer) {
 	h2Provisioner := provisioner.NewHysteria2Provisioner(configPath, "true")
 	clientsSvc := clients.NewService(pool, vlessProvisioner, h2Provisioner, cryptor, 1)
 
-	signer := testSigner(t)
-	authSvc := auth.NewService(pool, signer)
+	sm := session.NewManager(pool)
+	authSvc := auth.NewService(pool, sm)
 
-	return NewRouter(pool, clientsSvc, authSvc, signer), signer
-}
+	hash, err := password.Hash("correct-password")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO admins (username, password_hash) VALUES ($1, $2)`, "admin", hash); err != nil {
+		t.Fatalf("insert test admin: %v", err)
+	}
 
-func authCookie(signer *session.Signer) *http.Cookie {
-	token, expiresAt := signer.Sign(1)
-	return &http.Cookie{Name: sessionCookieName, Value: token, Expires: expiresAt}
+	token, expiresAt, err := authSvc.Login(context.Background(), "admin", "correct-password")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	cookie := &http.Cookie{Name: sessionCookieName, Value: token, Expires: expiresAt}
+
+	return NewRouter(pool, clientsSvc, authSvc, sm), cookie
 }
 
 func TestCreateClientEndpointSuccess(t *testing.T) {
-	router, signer := testRouter(t)
+	router, cookie := testRouter(t)
 
 	body := bytes.NewBufferString(`{"traffic_limit_bytes": 1073741824, "limit_ip": 3}`)
 	req := httptest.NewRequest(http.MethodPost, "/clients", body)
-	req.AddCookie(authCookie(signer))
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -119,10 +136,10 @@ func TestCreateClientEndpointSuccess(t *testing.T) {
 }
 
 func TestCreateClientEndpointEmptyBodyUsesDefaults(t *testing.T) {
-	router, signer := testRouter(t)
+	router, cookie := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", nil)
-	req.AddCookie(authCookie(signer))
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -133,10 +150,10 @@ func TestCreateClientEndpointEmptyBodyUsesDefaults(t *testing.T) {
 }
 
 func TestCreateClientEndpointInvalidJSON(t *testing.T) {
-	router, signer := testRouter(t)
+	router, cookie := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{not json`))
-	req.AddCookie(authCookie(signer))
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -147,10 +164,10 @@ func TestCreateClientEndpointInvalidJSON(t *testing.T) {
 }
 
 func TestCreateClientEndpointNegativeTrafficLimit(t *testing.T) {
-	router, signer := testRouter(t)
+	router, cookie := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{"traffic_limit_bytes": -1}`))
-	req.AddCookie(authCookie(signer))
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

@@ -17,7 +17,7 @@ const userIDContextKey contextKey = "userID"
 // RequireAuth wraps handlers that need an authenticated admin session. On
 // failure it returns 401 with no detail — callers can't distinguish a
 // missing cookie from an expired or tampered one.
-func RequireAuth(signer *session.Signer) func(http.Handler) http.Handler {
+func RequireAuth(sm *session.SessionManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			cookie, err := r.Cookie(sessionCookieName)
@@ -26,13 +26,13 @@ func RequireAuth(signer *session.Signer) func(http.Handler) http.Handler {
 				return
 			}
 
-			userID, err := signer.Verify(cookie.Value)
+			userID, err := sm.GetUserFromToken(r.Context(), cookie.Value)
 			if err != nil {
 				writeJSONError(w, http.StatusUnauthorized, "authentication required")
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), userIDContextKey, userID)
+			ctx := context.WithValue(r.Context(), userIDContextKey, *userID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -27,16 +28,16 @@ var ErrInvalidCredentials = errors.New("invalid username or password")
 const dummyHash = "$argon2id$v=19$m=32768,t=3,p=1$j/NqoamR1wG3VSwtXr1Afw$XlfEmrHn0bJqxkmu693XxeGqnoOrFd0/K/XqRgxRiE0"
 
 type Service struct {
-	pool   *pgxpool.Pool
-	signer *session.Signer
+	pool     *pgxpool.Pool
+	sessions *session.SessionManager
 }
 
-func NewService(pool *pgxpool.Pool, signer *session.Signer) *Service {
-	return &Service{pool: pool, signer: signer}
+func NewService(pool *pgxpool.Pool, sessions *session.SessionManager) *Service {
+	return &Service{pool: pool, sessions: sessions}
 }
 
 func (s *Service) Login(ctx context.Context, username, plaintextPassword string) (token string, expiresAt time.Time, err error) {
-	var userID int64
+	var userID uuid.UUID
 	var hash string
 	err = s.pool.QueryRow(ctx, `SELECT id, password_hash FROM admins WHERE username = $1`, username).Scan(&userID, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -55,6 +56,15 @@ func (s *Service) Login(ctx context.Context, username, plaintextPassword string)
 		return "", time.Time{}, ErrInvalidCredentials
 	}
 
-	token, expiresAt = s.signer.Sign(userID)
-	return token, expiresAt, nil
+	tok, err := s.sessions.CreateSession(ctx, userID, session.DefaultTTL)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("create session: %w", err)
+	}
+	return tok.Value, tok.ExpiresAt, nil
+}
+
+// Logout destroys the session backing token. Idempotent: an unknown or
+// already-expired token is not an error.
+func (s *Service) Logout(ctx context.Context, token string) error {
+	return s.sessions.DestroySessionByToken(ctx, token)
 }

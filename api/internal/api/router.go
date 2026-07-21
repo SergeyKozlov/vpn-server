@@ -13,7 +13,7 @@ import (
 	"vpn-api/internal/session"
 )
 
-func NewRouter(pool *pgxpool.Pool, clientsSvc *clients.Service, authSvc *auth.Service, signer *session.Signer) chi.Router {
+func NewRouter(pool *pgxpool.Pool, clientsSvc *clients.Service, authSvc *auth.Service, sm *session.SessionManager) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -22,10 +22,10 @@ func NewRouter(pool *pgxpool.Pool, clientsSvc *clients.Service, authSvc *auth.Se
 
 	r.Get("/healthz", healthzHandler(pool))
 	r.Post("/login", loginHandler(authSvc, limiter))
-	r.Post("/logout", logoutHandler())
+	r.Post("/logout", logoutHandler(authSvc))
 
 	r.Group(func(r chi.Router) {
-		r.Use(RequireAuth(signer))
+		r.Use(RequireAuth(sm))
 		r.Post("/clients", createClientHandler(clientsSvc))
 	})
 
