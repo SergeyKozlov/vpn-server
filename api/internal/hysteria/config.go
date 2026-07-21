@@ -39,10 +39,23 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// bootstrapPlaceholderUser keeps auth.userpass non-empty when the last real
+// client is removed. An empty map serializes as an absent userpass key
+// (omitempty), which crashes the server on reload with "auth.userpass:
+// empty auth userpass" — this placeholder has no corresponding client, so
+// it grants no access. Password value is arbitrary and not a secret.
+const (
+	bootstrapPlaceholderUser     = "_bootstrap_no_access"
+	bootstrapPlaceholderPassword = "51b43a5272b201bb0abf4398f6eca089203035b669b176d9"
+)
+
 // SetUsers replaces the userpass credential map wholesale and forces
 // auth.type to "userpass".
 func (c *Config) SetUsers(users map[string]string) {
 	c.Auth.Type = "userpass"
+	if len(users) == 0 {
+		users = map[string]string{bootstrapPlaceholderUser: bootstrapPlaceholderPassword}
+	}
 	c.Auth.UserPass = users
 }
 

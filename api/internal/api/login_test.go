@@ -30,8 +30,8 @@ func testAuthPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM users"); err != nil {
-			t.Fatalf("clean users table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
+			t.Fatalf("clean admins table: %v", err)
 		}
 	}
 	clean()
@@ -46,7 +46,7 @@ func createTestUser(t *testing.T, pool *pgxpool.Pool, username, plaintextPasswor
 	if err != nil {
 		t.Fatalf("hash password: %v", err)
 	}
-	if _, err := pool.Exec(context.Background(), `INSERT INTO users (username, password_hash) VALUES ($1, $2)`, username, hash); err != nil {
+	if _, err := pool.Exec(context.Background(), `INSERT INTO admins (username, password_hash) VALUES ($1, $2)`, username, hash); err != nil {
 		t.Fatalf("insert test user: %v", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"vpn-api/internal/config"
 	"vpn-api/internal/crypto"
 	"vpn-api/internal/database"
+	"vpn-api/internal/provisioner"
 	"vpn-api/internal/session"
 	"vpn-api/internal/xui"
 )
@@ -69,7 +70,9 @@ func run() error {
 
 	authSvc := auth.NewService(pool, signer)
 
-	clientsSvc := clients.NewService(pool, panel, cryptor, cfg.XUIInboundID, cfg.HysteriaConfigPath, cfg.HysteriaReloadCommand)
+	vlessProvisioner := provisioner.NewThreeXUIProvisioner(panel, cfg.XUIInboundID)
+	h2Provisioner := provisioner.NewHysteria2Provisioner(cfg.HysteriaConfigPath, cfg.HysteriaReloadCommand)
+	clientsSvc := clients.NewService(pool, vlessProvisioner, h2Provisioner, cryptor, cfg.XUIInboundID)
 
 	r := api.NewRouter(pool, clientsSvc, authSvc, signer)
 

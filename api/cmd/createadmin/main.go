@@ -1,4 +1,4 @@
-// Command createadmin inserts a single admin row into the users table. Run
+// Command createadmin inserts a single admin row into the admins table. Run
 // once, manually, on the server — there is no public registration
 // endpoint. Requires the same DATABASE_URL as the api service, and expects
 // migrations to have already been applied (run the api service at least
@@ -51,7 +51,7 @@ func run() error {
 		return fmt.Errorf("hash password: %w", err)
 	}
 
-	_, err = pool.Exec(ctx, `INSERT INTO users (username, password_hash) VALUES ($1, $2)`, *username, hash)
+	_, err = pool.Exec(ctx, `INSERT INTO admins (username, password_hash) VALUES ($1, $2)`, *username, hash)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {

@@ -38,7 +38,7 @@ func NewService(pool *pgxpool.Pool, signer *session.Signer) *Service {
 func (s *Service) Login(ctx context.Context, username, plaintextPassword string) (token string, expiresAt time.Time, err error) {
 	var userID int64
 	var hash string
-	err = s.pool.QueryRow(ctx, `SELECT id, password_hash FROM users WHERE username = $1`, username).Scan(&userID, &hash)
+	err = s.pool.QueryRow(ctx, `SELECT id, password_hash FROM admins WHERE username = $1`, username).Scan(&userID, &hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_, _ = password.Verify(plaintextPassword, dummyHash)
 		return "", time.Time{}, ErrInvalidCredentials

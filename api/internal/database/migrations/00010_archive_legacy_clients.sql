@@ -1,0 +1,17 @@
+-- +goose Up
+ALTER TABLE clients RENAME TO legacy_clients_phase1;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT clients_pkey TO legacy_clients_phase1_pkey;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT clients_email_key TO legacy_clients_phase1_email_key;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT clients_hysteria2_username_key TO legacy_clients_phase1_hysteria2_username_key;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT clients_sub_id_key TO legacy_clients_phase1_sub_id_key;
+ALTER SEQUENCE clients_id_seq RENAME TO legacy_clients_phase1_id_seq;
+ALTER TRIGGER clients_set_updated_at ON legacy_clients_phase1 RENAME TO legacy_clients_phase1_set_updated_at;
+
+-- +goose Down
+ALTER TRIGGER legacy_clients_phase1_set_updated_at ON legacy_clients_phase1 RENAME TO clients_set_updated_at;
+ALTER SEQUENCE legacy_clients_phase1_id_seq RENAME TO clients_id_seq;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT legacy_clients_phase1_sub_id_key TO clients_sub_id_key;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT legacy_clients_phase1_hysteria2_username_key TO clients_hysteria2_username_key;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT legacy_clients_phase1_email_key TO clients_email_key;
+ALTER TABLE legacy_clients_phase1 RENAME CONSTRAINT legacy_clients_phase1_pkey TO clients_pkey;
+ALTER TABLE legacy_clients_phase1 RENAME TO clients;

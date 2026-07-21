@@ -134,6 +134,35 @@ func TestSetUsersSwitchesFromPasswordType(t *testing.T) {
 	}
 }
 
+// TestSetUsersEmptyMapKeepsUserpassNonEmpty guards against a confirmed
+// production bug: an empty userpass map serializes with the key omitted
+// (yaml:",omitempty"), and Hysteria2 refuses to start with "auth.userpass:
+// empty auth userpass". Removing the last client must not produce that.
+func TestSetUsersEmptyMapKeepsUserpassNonEmpty(t *testing.T) {
+	path := writeTempConfig(t, sampleConfig)
+
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	cfg.SetUsers(map[string]string{})
+	if err := cfg.Save(path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("reload LoadConfig: %v", err)
+	}
+	if reloaded.Auth.Type != "userpass" {
+		t.Errorf("Auth.Type = %q, want userpass", reloaded.Auth.Type)
+	}
+	if len(reloaded.Auth.UserPass) == 0 {
+		t.Fatalf("auth.userpass is empty after removing all users — server would fail to start")
+	}
+}
+
 func TestReloadRunsCommand(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "reloaded")
 

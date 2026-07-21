@@ -28,8 +28,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM users"); err != nil {
-			t.Fatalf("clean users table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
+			t.Fatalf("clean admins table: %v", err)
 		}
 	}
 	clean()
@@ -60,7 +60,7 @@ func createUser(t *testing.T, pool *pgxpool.Pool, username, plaintextPassword st
 
 	var id int64
 	err = pool.QueryRow(context.Background(),
-		`INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id`,
+		`INSERT INTO admins (username, password_hash) VALUES ($1, $2) RETURNING id`,
 		username, hash).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert user: %v", err)

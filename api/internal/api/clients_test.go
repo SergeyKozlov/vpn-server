@@ -16,6 +16,7 @@ import (
 	"vpn-api/internal/auth"
 	"vpn-api/internal/clients"
 	appcrypto "vpn-api/internal/crypto"
+	"vpn-api/internal/provisioner"
 	"vpn-api/internal/session"
 	"vpn-api/internal/xui"
 )
@@ -34,8 +35,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM clients"); err != nil {
-			t.Fatalf("clean clients table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM legacy_clients_phase1"); err != nil {
+			t.Fatalf("clean legacy_clients_phase1 table: %v", err)
 		}
 	}
 	clean()
@@ -74,7 +75,9 @@ func testRouter(t *testing.T) (http.Handler, *session.Signer) {
 		t.Fatalf("NewPanel: %v", err)
 	}
 
-	clientsSvc := clients.NewService(pool, panel, cryptor, 1, configPath, "true")
+	vlessProvisioner := provisioner.NewThreeXUIProvisioner(panel, 1)
+	h2Provisioner := provisioner.NewHysteria2Provisioner(configPath, "true")
+	clientsSvc := clients.NewService(pool, vlessProvisioner, h2Provisioner, cryptor, 1)
 
 	signer := testSigner(t)
 	authSvc := auth.NewService(pool, signer)

@@ -18,8 +18,15 @@ import (
 
 	"vpn-api/internal/crypto"
 	"vpn-api/internal/hysteria"
+	"vpn-api/internal/provisioner"
 	"vpn-api/internal/xui"
 )
+
+func newTestService(pool *pgxpool.Pool, panel *xui.Panel, cryptor *crypto.AESGCM, inboundID int, hysteriaConfigPath, hysteriaReloadCommand string) *Service {
+	vless := provisioner.NewThreeXUIProvisioner(panel, inboundID)
+	h2 := provisioner.NewHysteria2Provisioner(hysteriaConfigPath, hysteriaReloadCommand)
+	return NewService(pool, vless, h2, cryptor, inboundID)
+}
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -35,8 +42,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM clients"); err != nil {
-			t.Fatalf("clean clients table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM legacy_clients_phase1"); err != nil {
+			t.Fatalf("clean legacy_clients_phase1 table: %v", err)
 		}
 	}
 	clean()
@@ -100,7 +107,7 @@ func TestCreateSuccess(t *testing.T) {
 		alwaysSuccess(w, r)
 	})
 
-	svc := NewService(pool, panel, cryptor, 1, configPath, "true")
+	svc := newTestService(pool, panel, cryptor, 1, configPath, "true")
 
 	expires := time.Now().Add(30 * 24 * time.Hour).UTC().Truncate(time.Millisecond)
 	c, err := svc.Create(context.Background(), CreateParams{
@@ -160,8 +167,8 @@ func TestCreateSuccess(t *testing.T) {
 	if got.Email != c.Email {
 		t.Errorf("client email = %q, want %q", got.Email, c.Email)
 	}
-	if got.Flow != vlessFlow {
-		t.Errorf("client flow = %q, want %q", got.Flow, vlessFlow)
+	if got.Flow != "xtls-rprx-vision" {
+		t.Errorf("client flow = %q, want %q", got.Flow, "xtls-rprx-vision")
 	}
 	if !got.Enable {
 		t.Errorf("client enable = false, want true")
@@ -182,7 +189,7 @@ func TestCreateSuccess(t *testing.T) {
 	// DB row exists and matches.
 	var email, hyUsername string
 	var enabled bool
-	err = pool.QueryRow(context.Background(), "SELECT email, hysteria2_username, enabled FROM clients WHERE id = $1", c.ID).
+	err = pool.QueryRow(context.Background(), "SELECT email, hysteria2_username, enabled FROM legacy_clients_phase1 WHERE id = $1", c.ID).
 		Scan(&email, &hyUsername, &enabled)
 	if err != nil {
 		t.Fatalf("query inserted row: %v", err)
@@ -207,7 +214,7 @@ func TestCreateDefaultsWhenExpiryNil(t *testing.T) {
 	configPath := testHysteriaConfig(t)
 
 	panel := newMockXUIServer(t, alwaysSuccess)
-	svc := NewService(pool, panel, cryptor, 1, configPath, "true")
+	svc := newTestService(pool, panel, cryptor, 1, configPath, "true")
 
 	c, err := svc.Create(context.Background(), CreateParams{})
 	if err != nil {
@@ -224,7 +231,7 @@ func TestCreatePreservesExistingHysteriaUsers(t *testing.T) {
 	configPath := testHysteriaConfig(t)
 
 	panel := newMockXUIServer(t, alwaysSuccess)
-	svc := NewService(pool, panel, cryptor, 1, configPath, "true")
+	svc := newTestService(pool, panel, cryptor, 1, configPath, "true")
 
 	c1, err := svc.Create(context.Background(), CreateParams{})
 	if err != nil {
@@ -260,14 +267,14 @@ func TestCreateRollsBackOnXUIFailure(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"success": false, "msg": "boom"})
 	})
 
-	svc := NewService(pool, panel, cryptor, 1, configPath, "true")
+	svc := newTestService(pool, panel, cryptor, 1, configPath, "true")
 
 	if _, err := svc.Create(context.Background(), CreateParams{}); err == nil {
 		t.Fatalf("expected error")
 	}
 
 	var count int
-	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM clients").Scan(&count); err != nil {
+	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM legacy_clients_phase1").Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 0 {
@@ -296,7 +303,7 @@ func TestCreateRollsBackOnHysteriaFailure(t *testing.T) {
 		alwaysSuccess(w, r)
 	})
 
-	svc := NewService(pool, panel, cryptor, 1, configPath, "exit 1")
+	svc := newTestService(pool, panel, cryptor, 1, configPath, "exit 1")
 
 	if _, err := svc.Create(context.Background(), CreateParams{}); err == nil {
 		t.Fatalf("expected error")
@@ -307,7 +314,7 @@ func TestCreateRollsBackOnHysteriaFailure(t *testing.T) {
 	}
 
 	var count int
-	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM clients").Scan(&count); err != nil {
+	if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM legacy_clients_phase1").Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 0 {
@@ -320,7 +327,7 @@ func TestCreateValidatesParams(t *testing.T) {
 	cryptor := testCryptor(t)
 	configPath := testHysteriaConfig(t)
 	panel := newMockXUIServer(t, alwaysSuccess)
-	svc := NewService(pool, panel, cryptor, 1, configPath, "true")
+	svc := newTestService(pool, panel, cryptor, 1, configPath, "true")
 
 	if _, err := svc.Create(context.Background(), CreateParams{TrafficLimitBytes: -1}); !errors.Is(err, ErrInvalidParams) {
 		t.Errorf("TrafficLimitBytes=-1: got err %v, want ErrInvalidParams", err)

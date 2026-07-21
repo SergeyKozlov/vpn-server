@@ -17,38 +17,31 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vpn-api/internal/crypto"
-	"vpn-api/internal/hysteria"
-	"vpn-api/internal/xui"
+	"vpn-api/internal/provisioner"
 )
 
 // ErrInvalidParams wraps validation failures on CreateParams so callers
 // (the HTTP layer) can map them to 400 instead of 500.
 var ErrInvalidParams = errors.New("invalid parameters")
 
-// vlessFlow is fixed because the only inbound this service targets
-// (xui_inbound_id) is a VLESS Reality inbound.
-const vlessFlow = "xtls-rprx-vision"
-
 type Service struct {
 	pool    *pgxpool.Pool
-	panel   *xui.Panel
+	vless   provisioner.EdgeProvisioner
+	h2      *provisioner.Hysteria2Provisioner
 	cryptor *crypto.AESGCM
 
 	inboundID int
 
-	hysteriaConfigPath    string
-	hysteriaReloadCommand string
-	hysteriaMu            sync.Mutex // serializes read-modify-write of the userpass map
+	hysteriaMu sync.Mutex // serializes read-modify-write of the userpass map
 }
 
-func NewService(pool *pgxpool.Pool, panel *xui.Panel, cryptor *crypto.AESGCM, inboundID int, hysteriaConfigPath, hysteriaReloadCommand string) *Service {
+func NewService(pool *pgxpool.Pool, vless provisioner.EdgeProvisioner, h2 *provisioner.Hysteria2Provisioner, cryptor *crypto.AESGCM, inboundID int) *Service {
 	return &Service{
-		pool:                  pool,
-		panel:                 panel,
-		cryptor:               cryptor,
-		inboundID:             inboundID,
-		hysteriaConfigPath:    hysteriaConfigPath,
-		hysteriaReloadCommand: hysteriaReloadCommand,
+		pool:      pool,
+		vless:     vless,
+		h2:        h2,
+		cryptor:   cryptor,
+		inboundID: inboundID,
 	}
 }
 
@@ -89,7 +82,7 @@ func (s *Service) Create(ctx context.Context, params CreateParams) (*Client, err
 	var id int64
 	var createdAt time.Time
 	err = s.pool.QueryRow(ctx, `
-		INSERT INTO clients (email, xui_inbound_id, vless_uuid_enc, hysteria2_username, hysteria2_password_enc, sub_id, traffic_limit_bytes, limit_ip, expires_at, enabled)
+		INSERT INTO legacy_clients_phase1 (email, xui_inbound_id, vless_uuid_enc, hysteria2_username, hysteria2_password_enc, sub_id, traffic_limit_bytes, limit_ip, expires_at, enabled)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
 		RETURNING id, created_at
 	`, email, s.inboundID, vlessUUIDEnc, hysteria2Username, hysteria2PasswordEnc, subID, params.TrafficLimitBytes, params.LimitIP, params.ExpiresAt).
@@ -98,15 +91,13 @@ func (s *Service) Create(ctx context.Context, params CreateParams) (*Client, err
 		return nil, fmt.Errorf("insert client: %w", err)
 	}
 
-	err = s.panel.AddClient(ctx, s.inboundID, xui.Client{
-		ID:         vlessUUID,
+	err = s.vless.AddUser(ctx, provisioner.UserCredentialInput{
+		Identifier: vlessUUID,
 		Email:      email,
-		Flow:       vlessFlow,
-		Enable:     true,
-		ExpiryTime: expiryMillis(params.ExpiresAt),
+		SubID:      subID,
+		ExpiresAt:  expiryMillis(params.ExpiresAt),
 		LimitIP:    params.LimitIP,
 		TotalGB:    params.TrafficLimitBytes,
-		SubID:      subID,
 	})
 	if err != nil {
 		s.deleteClientRow(ctx, id)
@@ -114,7 +105,7 @@ func (s *Service) Create(ctx context.Context, params CreateParams) (*Client, err
 	}
 
 	if err := s.syncHysteriaUsers(ctx); err != nil {
-		if delErr := s.panel.DeleteClient(ctx, s.inboundID, vlessUUID); delErr != nil {
+		if delErr := s.vless.RemoveUser(ctx, "vless_reality", vlessUUID); delErr != nil {
 			log.Printf("clients: rollback: failed to delete xui client %s after hysteria sync failure: %v", vlessUUID, delErr)
 		}
 		s.deleteClientRow(ctx, id)
@@ -146,7 +137,7 @@ func (s *Service) syncHysteriaUsers(ctx context.Context) error {
 	s.hysteriaMu.Lock()
 	defer s.hysteriaMu.Unlock()
 
-	rows, err := s.pool.Query(ctx, `SELECT hysteria2_username, hysteria2_password_enc FROM clients WHERE enabled = true`)
+	rows, err := s.pool.Query(ctx, `SELECT hysteria2_username, hysteria2_password_enc FROM legacy_clients_phase1 WHERE enabled = true`)
 	if err != nil {
 		return fmt.Errorf("query hysteria users: %w", err)
 	}
@@ -170,11 +161,11 @@ func (s *Service) syncHysteriaUsers(ctx context.Context) error {
 		return fmt.Errorf("iterate hysteria users: %w", err)
 	}
 
-	return hysteria.SyncUsers(ctx, s.hysteriaConfigPath, users, s.hysteriaReloadCommand)
+	return s.h2.SyncUsers(ctx, users)
 }
 
 func (s *Service) deleteClientRow(ctx context.Context, id int64) {
-	if _, err := s.pool.Exec(ctx, `DELETE FROM clients WHERE id = $1`, id); err != nil {
+	if _, err := s.pool.Exec(ctx, `DELETE FROM legacy_clients_phase1 WHERE id = $1`, id); err != nil {
 		log.Printf("clients: rollback: failed to delete client row %d: %v", id, err)
 	}
 }
