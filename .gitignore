@@ -11,6 +11,9 @@ api/vpn-api
 *.exe
 *.test
 *.out
+# *.test above targets compiled Go test binaries, not this committed,
+# secrets-free test-environment file (see CLAUDE.md "Testing").
+!/.env.test
 
 # OS
 .DS_Store

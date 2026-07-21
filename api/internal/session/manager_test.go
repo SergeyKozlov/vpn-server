@@ -8,10 +8,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"vpn-api/internal/testutil"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	testutil.LoadEnv()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping integration test")
@@ -24,8 +27,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
-			t.Fatalf("clean sessions table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admin_sessions"); err != nil {
+			t.Fatalf("clean admin_sessions table: %v", err)
 		}
 		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
 			t.Fatalf("clean admins table: %v", err)
@@ -53,7 +56,7 @@ func testUserID(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 
 func TestCreateAndValidateRoundTrip(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 	userID := testUserID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, DefaultTTL)
@@ -75,7 +78,7 @@ func TestCreateAndValidateRoundTrip(t *testing.T) {
 
 func TestTokenHashStoredNotRawToken(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 	userID := testUserID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, DefaultTTL)
@@ -85,7 +88,7 @@ func TestTokenHashStoredNotRawToken(t *testing.T) {
 
 	var storedHash string
 	err = pool.QueryRow(context.Background(),
-		`SELECT token_hash FROM sessions WHERE user_id = $1`, userID).Scan(&storedHash)
+		`SELECT token_hash FROM admin_sessions WHERE user_id = $1`, userID).Scan(&storedHash)
 	if err != nil {
 		t.Fatalf("query token_hash: %v", err)
 	}
@@ -99,7 +102,7 @@ func TestTokenHashStoredNotRawToken(t *testing.T) {
 
 func TestValidateTokenRejectsUnknownToken(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 
 	if _, err := sm.ValidateToken(context.Background(), "deadbeef"); err != ErrInvalidToken {
 		t.Fatalf("err = %v, want %v", err, ErrInvalidToken)
@@ -108,7 +111,7 @@ func TestValidateTokenRejectsUnknownToken(t *testing.T) {
 
 func TestValidateTokenRejectsMalformedToken(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 
 	for _, bad := range []string{"", "not-hex!!", "zz"} {
 		if _, err := sm.ValidateToken(context.Background(), bad); err != ErrInvalidToken {
@@ -119,7 +122,7 @@ func TestValidateTokenRejectsMalformedToken(t *testing.T) {
 
 func TestValidateTokenRejectsExpiredToken(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 	userID := testUserID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, -time.Minute)
@@ -134,7 +137,7 @@ func TestValidateTokenRejectsExpiredToken(t *testing.T) {
 
 func TestGetUserFromToken(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 	userID := testUserID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, DefaultTTL)
@@ -153,7 +156,7 @@ func TestGetUserFromToken(t *testing.T) {
 
 func TestDestroySessionByID(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 	userID := testUserID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, DefaultTTL)
@@ -175,7 +178,7 @@ func TestDestroySessionByID(t *testing.T) {
 
 func TestDestroySessionIsIdempotent(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 
 	if err := sm.DestroySession(context.Background(), uuid.New()); err != nil {
 		t.Fatalf("DestroySession on unknown id: %v", err)
@@ -184,7 +187,7 @@ func TestDestroySessionIsIdempotent(t *testing.T) {
 
 func TestDestroySessionByToken(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 	userID := testUserID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, DefaultTTL)
@@ -202,7 +205,7 @@ func TestDestroySessionByToken(t *testing.T) {
 
 func TestDestroySessionByTokenIsIdempotent(t *testing.T) {
 	pool := testPool(t)
-	sm := NewManager(pool)
+	sm := NewSessionManager(pool, "admin_sessions")
 
 	if err := sm.DestroySessionByToken(context.Background(), "deadbeef"); err != nil {
 		t.Fatalf("DestroySessionByToken on unknown token: %v", err)

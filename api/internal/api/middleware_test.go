@@ -12,10 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"vpn-api/internal/session"
+	"vpn-api/internal/testutil"
 )
 
 func testMiddlewarePool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	testutil.LoadEnv()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping integration test")
@@ -28,11 +30,17 @@ func testMiddlewarePool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
-			t.Fatalf("clean sessions table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admin_sessions"); err != nil {
+			t.Fatalf("clean admin_sessions table: %v", err)
 		}
 		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
 			t.Fatalf("clean admins table: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
+			t.Fatalf("clean sessions table: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM users"); err != nil {
+			t.Fatalf("clean users table: %v", err)
 		}
 	}
 	clean()
@@ -55,7 +63,7 @@ func testAdminID(t *testing.T, pool *pgxpool.Pool) uuid.UUID {
 
 func TestRequireAuthNoCookie(t *testing.T) {
 	pool := testMiddlewarePool(t)
-	sm := session.NewManager(pool)
+	sm := session.NewSessionManager(pool, "admin_sessions")
 	handler := RequireAuth(sm)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -71,7 +79,7 @@ func TestRequireAuthNoCookie(t *testing.T) {
 
 func TestRequireAuthInvalidCookie(t *testing.T) {
 	pool := testMiddlewarePool(t)
-	sm := session.NewManager(pool)
+	sm := session.NewSessionManager(pool, "admin_sessions")
 	handler := RequireAuth(sm)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -88,7 +96,7 @@ func TestRequireAuthInvalidCookie(t *testing.T) {
 
 func TestRequireAuthExpiredCookie(t *testing.T) {
 	pool := testMiddlewarePool(t)
-	sm := session.NewManager(pool)
+	sm := session.NewSessionManager(pool, "admin_sessions")
 	userID := testAdminID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, -time.Minute)
@@ -112,7 +120,7 @@ func TestRequireAuthExpiredCookie(t *testing.T) {
 
 func TestRequireAuthValidCookie(t *testing.T) {
 	pool := testMiddlewarePool(t)
-	sm := session.NewManager(pool)
+	sm := session.NewSessionManager(pool, "admin_sessions")
 	userID := testAdminID(t, pool)
 
 	token, err := sm.CreateSession(context.Background(), userID, session.DefaultTTL)

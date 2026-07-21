@@ -15,10 +15,12 @@ import (
 	"vpn-api/internal/auth"
 	"vpn-api/internal/password"
 	"vpn-api/internal/session"
+	"vpn-api/internal/testutil"
 )
 
 func testAuthPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	testutil.LoadEnv()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping integration test")
@@ -31,8 +33,8 @@ func testAuthPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
-			t.Fatalf("clean sessions table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admin_sessions"); err != nil {
+			t.Fatalf("clean admin_sessions table: %v", err)
 		}
 		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
 			t.Fatalf("clean admins table: %v", err)
@@ -59,7 +61,7 @@ func TestLoginSuccess(t *testing.T) {
 	pool := testAuthPool(t)
 	createTestUser(t, pool, "admin", "correct-password")
 
-	sm := session.NewManager(pool)
+	sm := session.NewSessionManager(pool, "admin_sessions")
 	svc := auth.NewService(pool, sm)
 	handler := loginHandler(svc, newLoginRateLimiter(loginRateLimit, loginRateWindow))
 
@@ -82,7 +84,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	pool := testAuthPool(t)
 	createTestUser(t, pool, "admin", "correct-password")
 
-	svc := auth.NewService(pool, session.NewManager(pool))
+	svc := auth.NewService(pool, session.NewSessionManager(pool, "admin_sessions"))
 	handler := loginHandler(svc, newLoginRateLimiter(loginRateLimit, loginRateWindow))
 
 	body := bytes.NewBufferString(`{"username":"admin","password":"wrong-password"}`)
@@ -98,7 +100,7 @@ func TestLoginWrongPassword(t *testing.T) {
 func TestLoginUnknownUsername(t *testing.T) {
 	pool := testAuthPool(t)
 
-	svc := auth.NewService(pool, session.NewManager(pool))
+	svc := auth.NewService(pool, session.NewSessionManager(pool, "admin_sessions"))
 	handler := loginHandler(svc, newLoginRateLimiter(loginRateLimit, loginRateWindow))
 
 	body := bytes.NewBufferString(`{"username":"ghost","password":"whatever"}`)
@@ -113,7 +115,7 @@ func TestLoginUnknownUsername(t *testing.T) {
 
 func TestLoginMalformedBody(t *testing.T) {
 	pool := testAuthPool(t)
-	svc := auth.NewService(pool, session.NewManager(pool))
+	svc := auth.NewService(pool, session.NewSessionManager(pool, "admin_sessions"))
 	handler := loginHandler(svc, newLoginRateLimiter(loginRateLimit, loginRateWindow))
 
 	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{not json`))
@@ -127,7 +129,7 @@ func TestLoginMalformedBody(t *testing.T) {
 
 func TestLoginBodyTooLarge(t *testing.T) {
 	pool := testAuthPool(t)
-	svc := auth.NewService(pool, session.NewManager(pool))
+	svc := auth.NewService(pool, session.NewSessionManager(pool, "admin_sessions"))
 	handler := loginHandler(svc, newLoginRateLimiter(loginRateLimit, loginRateWindow))
 
 	body := bytes.NewBufferString(`{"username":"admin","password":"` + strings.Repeat("a", 1<<20) + `"}`)
@@ -144,7 +146,7 @@ func TestLoginRateLimitExceeded(t *testing.T) {
 	pool := testAuthPool(t)
 	createTestUser(t, pool, "admin", "correct-password")
 
-	svc := auth.NewService(pool, session.NewManager(pool))
+	svc := auth.NewService(pool, session.NewSessionManager(pool, "admin_sessions"))
 	handler := loginHandler(svc, newLoginRateLimiter(2, time.Minute))
 
 	attempt := func() int {

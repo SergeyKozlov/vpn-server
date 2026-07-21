@@ -12,10 +12,12 @@ import (
 
 	"vpn-api/internal/password"
 	"vpn-api/internal/session"
+	"vpn-api/internal/testutil"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	testutil.LoadEnv()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping integration test")
@@ -28,8 +30,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Cleanup(pool.Close)
 
 	clean := func() {
-		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
-			t.Fatalf("clean sessions table: %v", err)
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admin_sessions"); err != nil {
+			t.Fatalf("clean admin_sessions table: %v", err)
 		}
 		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
 			t.Fatalf("clean admins table: %v", err)
@@ -42,7 +44,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 }
 
 func testSessionManager(pool *pgxpool.Pool) *session.SessionManager {
-	return session.NewManager(pool)
+	return session.NewSessionManager(pool, "admin_sessions")
 }
 
 func createUser(t *testing.T, pool *pgxpool.Pool, username, plaintextPassword string) uuid.UUID {

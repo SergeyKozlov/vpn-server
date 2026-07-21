@@ -19,11 +19,14 @@ import (
 	"vpn-api/internal/password"
 	"vpn-api/internal/provisioner"
 	"vpn-api/internal/session"
+	"vpn-api/internal/testutil"
+	"vpn-api/internal/users"
 	"vpn-api/internal/xui"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	testutil.LoadEnv()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping integration test")
@@ -39,11 +42,17 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		if _, err := pool.Exec(context.Background(), "DELETE FROM legacy_clients_phase1"); err != nil {
 			t.Fatalf("clean legacy_clients_phase1 table: %v", err)
 		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM admin_sessions"); err != nil {
+			t.Fatalf("clean admin_sessions table: %v", err)
+		}
 		if _, err := pool.Exec(context.Background(), "DELETE FROM sessions"); err != nil {
 			t.Fatalf("clean sessions table: %v", err)
 		}
 		if _, err := pool.Exec(context.Background(), "DELETE FROM admins"); err != nil {
 			t.Fatalf("clean admins table: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM users"); err != nil {
+			t.Fatalf("clean users table: %v", err)
 		}
 	}
 	clean()
@@ -52,7 +61,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-func testRouter(t *testing.T) (http.Handler, *http.Cookie) {
+func testRouter(t *testing.T) (http.Handler, *http.Cookie, *pgxpool.Pool) {
 	t.Helper()
 
 	pool := testPool(t)
@@ -86,8 +95,8 @@ func testRouter(t *testing.T) (http.Handler, *http.Cookie) {
 	h2Provisioner := provisioner.NewHysteria2Provisioner(configPath, "true")
 	clientsSvc := clients.NewService(pool, vlessProvisioner, h2Provisioner, cryptor, 1)
 
-	sm := session.NewManager(pool)
-	authSvc := auth.NewService(pool, sm)
+	adminSessions := session.NewSessionManager(pool, "admin_sessions")
+	authSvc := auth.NewService(pool, adminSessions)
 
 	hash, err := password.Hash("correct-password")
 	if err != nil {
@@ -104,11 +113,34 @@ func testRouter(t *testing.T) (http.Handler, *http.Cookie) {
 	}
 	cookie := &http.Cookie{Name: sessionCookieName, Value: token, Expires: expiresAt}
 
-	return NewRouter(pool, clientsSvc, authSvc, sm), cookie
+	userSessions := session.NewSessionManager(pool, "sessions")
+	usersSvc := users.NewService(pool, userSessions)
+
+	return NewRouter(pool, clientsSvc, authSvc, adminSessions, usersSvc, userSessions), cookie, pool
+}
+
+// testClientCookie registers and logs in a fresh client user against
+// router's users service, returning a valid vpn_user_session cookie —
+// used by the cross-circuit test to prove a client cookie can't
+// authenticate an admin route.
+func testClientCookie(t *testing.T, pool *pgxpool.Pool) *http.Cookie {
+	t.Helper()
+
+	userSessions := session.NewSessionManager(pool, "sessions")
+	usersSvc := users.NewService(pool, userSessions)
+
+	if _, err := usersSvc.Register(context.Background(), "cross-circuit@example.com", "correct-password"); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	token, expiresAt, err := usersSvc.Login(context.Background(), "cross-circuit@example.com", "correct-password")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	return &http.Cookie{Name: clientSessionCookieName, Value: token, Expires: expiresAt}
 }
 
 func TestCreateClientEndpointSuccess(t *testing.T) {
-	router, cookie := testRouter(t)
+	router, cookie, _ := testRouter(t)
 
 	body := bytes.NewBufferString(`{"traffic_limit_bytes": 1073741824, "limit_ip": 3}`)
 	req := httptest.NewRequest(http.MethodPost, "/clients", body)
@@ -136,7 +168,7 @@ func TestCreateClientEndpointSuccess(t *testing.T) {
 }
 
 func TestCreateClientEndpointEmptyBodyUsesDefaults(t *testing.T) {
-	router, cookie := testRouter(t)
+	router, cookie, _ := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", nil)
 	req.AddCookie(cookie)
@@ -150,7 +182,7 @@ func TestCreateClientEndpointEmptyBodyUsesDefaults(t *testing.T) {
 }
 
 func TestCreateClientEndpointInvalidJSON(t *testing.T) {
-	router, cookie := testRouter(t)
+	router, cookie, _ := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{not json`))
 	req.AddCookie(cookie)
@@ -164,7 +196,7 @@ func TestCreateClientEndpointInvalidJSON(t *testing.T) {
 }
 
 func TestCreateClientEndpointNegativeTrafficLimit(t *testing.T) {
-	router, cookie := testRouter(t)
+	router, cookie, _ := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{"traffic_limit_bytes": -1}`))
 	req.AddCookie(cookie)
@@ -178,9 +210,27 @@ func TestCreateClientEndpointNegativeTrafficLimit(t *testing.T) {
 }
 
 func TestCreateClientEndpointRequiresAuth(t *testing.T) {
-	router, _ := testRouter(t)
+	router, _, _ := testRouter(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{}`))
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// TestCreateClientEndpointRejectsClientCookie is TZ P2.3 acceptance row 10:
+// a client (vpn_user_session) cookie must not authenticate the admin
+// POST /clients route — the two circuits are independent.
+func TestCreateClientEndpointRejectsClientCookie(t *testing.T) {
+	router, _, pool := testRouter(t)
+	clientCookie := testClientCookie(t, pool)
+
+	req := httptest.NewRequest(http.MethodPost, "/clients", bytes.NewBufferString(`{}`))
+	req.AddCookie(clientCookie)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

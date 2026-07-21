@@ -13,7 +13,7 @@ import (
 
 func TestLogoutClearsCookieNoSession(t *testing.T) {
 	pool := testMiddlewarePool(t)
-	svc := auth.NewService(pool, session.NewManager(pool))
+	svc := auth.NewService(pool, session.NewSessionManager(pool, "admin_sessions"))
 	handler := logoutHandler(svc)
 
 	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
@@ -32,7 +32,7 @@ func TestLogoutClearsCookieNoSession(t *testing.T) {
 
 func TestLogoutDestroysSession(t *testing.T) {
 	pool := testMiddlewarePool(t)
-	sm := session.NewManager(pool)
+	sm := session.NewSessionManager(pool, "admin_sessions")
 	svc := auth.NewService(pool, sm)
 
 	hash, err := password.Hash("correct-password")

@@ -17,6 +17,7 @@ import (
 	"vpn-api/internal/database"
 	"vpn-api/internal/provisioner"
 	"vpn-api/internal/session"
+	"vpn-api/internal/users"
 	"vpn-api/internal/xui"
 )
 
@@ -59,14 +60,16 @@ func run() error {
 		return err
 	}
 
-	sm := session.NewManager(pool)
-	authSvc := auth.NewService(pool, sm)
+	adminSessions := session.NewSessionManager(pool, "admin_sessions")
+	userSessions := session.NewSessionManager(pool, "sessions")
+	authSvc := auth.NewService(pool, adminSessions)
+	usersSvc := users.NewService(pool, userSessions)
 
 	vlessProvisioner := provisioner.NewThreeXUIProvisioner(panel, cfg.XUIInboundID)
 	h2Provisioner := provisioner.NewHysteria2Provisioner(cfg.HysteriaConfigPath, cfg.HysteriaReloadCommand)
 	clientsSvc := clients.NewService(pool, vlessProvisioner, h2Provisioner, cryptor, cfg.XUIInboundID)
 
-	r := api.NewRouter(pool, clientsSvc, authSvc, sm)
+	r := api.NewRouter(pool, clientsSvc, authSvc, adminSessions, usersSvc, userSessions)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,

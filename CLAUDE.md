@@ -35,3 +35,7 @@ The panel is exposed via host networking (no port mapping needed/possible to cha
 - **Target host constraints**: 1 vCPU / 1 GB RAM box also running Postgres, Xray, Hysteria2, and Caddy — this drives the reduced Argon2 memory recommendation and general resource caution.
 
 Read `compass_artifact.md` in full before implementing any of the above — it contains exact struct definitions, example payloads, and a "Caveats" section (e.g. 3X-UI is officially "personal use" software per its README, Caddy 2.11.x had several CVEs fixed through 2.11.4, Cloudflare token env var name differs between prebuilt Caddy images) that matter for correctness.
+
+## Testing
+
+`.env` on this host points at the real 3x-ui panel and a real Hysteria2 reload command. **Live smoke tests and `make test` always use `.env.test`, never `.env`** — `.env.test` is committed (dummy XUI endpoint, no-op reload command, separate `vpn_test` database under its own low-privilege Postgres role) specifically so a test run can never provision a real client or restart the real Hysteria2 service. Run `make test` from the repo root, or `cd api && ENV_FILE=.env.test go test ./...` directly.

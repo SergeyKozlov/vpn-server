@@ -1,8 +1,11 @@
 // Package session implements serverside sessions: an opaque random token is
-// handed to the client, and only its SHA-256 hash is stored in the sessions
+// handed to the client, and only its SHA-256 hash is stored in a sessions
 // table (AC-6.9) — never the token itself. Validating a request means
 // hashing the presented token and looking it up, so a session can be
 // revoked instantly by deleting its row, unlike a stateless signed cookie.
+// SessionManager is generic over which table it uses, since admins and
+// end-customer users each get their own independent session store
+// (admin_sessions, sessions) — see NewSessionManager.
 package session
 
 import (
@@ -29,9 +32,16 @@ const DefaultTTL = 24 * time.Hour
 // matching row, or an expired one — callers don't need to distinguish which.
 var ErrInvalidToken = errors.New("invalid or expired session token")
 
-// SessionManager manages serverside sessions backed by the sessions table.
+// allowedTables is the set of tables SessionManager may be constructed
+// against. The table name is interpolated into SQL via fmt.Sprintf (never
+// user input), but this allowlist guards against future misuse.
+var allowedTables = map[string]bool{"sessions": true, "admin_sessions": true}
+
+// SessionManager manages serverside sessions backed by a sessions-shaped
+// table (sessions for clients, admin_sessions for panel admins).
 type SessionManager struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	table string
 }
 
 // Session is a row from the sessions table.
@@ -50,8 +60,15 @@ type Token struct {
 	ExpiresAt time.Time
 }
 
-func NewManager(pool *pgxpool.Pool) *SessionManager {
-	return &SessionManager{pool: pool}
+// NewSessionManager constructs a SessionManager backed by table. table must
+// be one of allowedTables; any other value panics — this isn't reachable
+// with user input, but catches a wiring mistake immediately instead of
+// silently querying the wrong table.
+func NewSessionManager(pool *pgxpool.Pool, table string) *SessionManager {
+	if !allowedTables[table] {
+		panic(fmt.Sprintf("session: table %q is not in the allowlist", table))
+	}
+	return &SessionManager{pool: pool, table: table}
 }
 
 // CreateSession generates a new random token, stores its hash, and returns
@@ -67,7 +84,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, userID uuid.UUID, t
 	expiresAt := time.Now().UTC().Add(ttl)
 
 	_, err := sm.pool.Exec(ctx,
-		`INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		fmt.Sprintf(`INSERT INTO %s (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, sm.table),
 		userID, hash, expiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert session: %w", err)
@@ -87,9 +104,9 @@ func (sm *SessionManager) ValidateToken(ctx context.Context, token string) (*Ses
 
 	var s Session
 	err = sm.pool.QueryRow(ctx,
-		`SELECT id, user_id, token_hash, expires_at, created_at
-		   FROM sessions
-		  WHERE token_hash = $1 AND expires_at > now()`,
+		fmt.Sprintf(`SELECT id, user_id, token_hash, expires_at, created_at
+		   FROM %s
+		  WHERE token_hash = $1 AND expires_at > now()`, sm.table),
 		hash).Scan(&s.ID, &s.UserID, &s.TokenHash, &s.ExpiresAt, &s.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrInvalidToken
@@ -113,7 +130,7 @@ func (sm *SessionManager) GetUserFromToken(ctx context.Context, token string) (*
 // DestroySession deletes a session by ID. Idempotent: deleting an
 // already-gone session is not an error.
 func (sm *SessionManager) DestroySession(ctx context.Context, sessionID uuid.UUID) error {
-	_, err := sm.pool.Exec(ctx, `DELETE FROM sessions WHERE id = $1`, sessionID)
+	_, err := sm.pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1`, sm.table), sessionID)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}
@@ -130,7 +147,7 @@ func (sm *SessionManager) DestroySessionByToken(ctx context.Context, token strin
 	}
 	hash := hashToken(raw)
 
-	_, err = sm.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, hash)
+	_, err = sm.pool.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE token_hash = $1`, sm.table), hash)
 	if err != nil {
 		return fmt.Errorf("delete session: %w", err)
 	}

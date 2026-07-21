@@ -23,6 +23,17 @@ type User struct {
 	DeletedAt         *time.Time
 }
 
+// EffectiveStatus computes the user's status as of now, lazily expiring an
+// unflipped trial row rather than relying on a background job: a trial
+// whose TrialEndsAt has passed reads as "expired" even though the stored
+// Status column still says "trial".
+func (u *User) EffectiveStatus(now time.Time) string {
+	if u.Status == "trial" && u.TrialEndsAt != nil && now.After(*u.TrialEndsAt) {
+		return "expired"
+	}
+	return u.Status
+}
+
 type UserCredential struct {
 	ID          uuid.UUID
 	UserID      uuid.UUID
