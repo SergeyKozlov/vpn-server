@@ -1,5 +1,8 @@
 {
 	email ops@videcdn.net
+	servers :8443 {
+		protocols h1 h2
+	}
 }
 
 api.videcdn.net:8443 {

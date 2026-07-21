@@ -10,7 +10,22 @@
       "Bash(curl -sS -o /tmp/noauth_resp.txt -w 'no-cookie clients: %{http_code}\\\\n' -X POST http://127.0.0.1:18080/clients -d '{}')",
       "Bash(curl -sS -b /tmp/smoketest-cookies.txt -o /tmp/auth_resp.txt -w 'with-cookie clients: %{http_code}\\\\n' -X POST http://127.0.0.1:18080/clients -d '{}')",
       "Read(//tmp/**)",
-      "Bash(xargs -I{} basename {})"
+      "Bash(xargs -I{} basename {})",
+      "Bash(systemctl status *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(systemctl list-units *)",
+      "Bash(gh api *)",
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/MHSanaei/3x-ui/contents/web/controller\")",
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/MHSanaei/3x-ui\")",
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/MHSanaei/3x-ui/contents\")",
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/MHSanaei/3x-ui/contents/internal\")",
+      "Bash(curl -s -m 10 \"https://api.github.com/search/code?q=addClient+repo:MHSanaei/3x-ui\" -H \"Accept: application/vnd.github+json\")",
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/MHSanaei/3x-ui/contents/internal/web/controller\")",
+      "Bash(curl -s -m 10 \"https://raw.githubusercontent.com/MHSanaei/3x-ui/main/internal/web/controller/api.go\")",
+      "Bash(curl -s -m 10 \"https://raw.githubusercontent.com/MHSanaei/3x-ui/main/internal/web/controller/client.go\")",
+      "Bash(curl -s -m 10 \"https://api.github.com/repos/MHSanaei/3x-ui/contents/internal/web/service\")",
+      "Bash(curl -s -m 10 \"https://raw.githubusercontent.com/MHSanaei/3x-ui/main/internal/web/service/client_crud.go\")"
     ]
   },
   "enabledPlugins": {}
