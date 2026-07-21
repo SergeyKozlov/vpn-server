@@ -17,7 +17,10 @@ import (
 	"time"
 )
 
-const inboundsPath = "/panel/api/inbounds"
+const (
+	inboundsPath = "/panel/api/inbounds"
+	clientsPath  = "/panel/api/clients"
+)
 
 // Panel is a client for one 3x-ui panel instance.
 type Panel struct {
@@ -115,42 +118,40 @@ func (p *Panel) GetInbound(ctx context.Context, id int) (*Inbound, error) {
 	return &inbound, nil
 }
 
+// AddClient creates a standalone client record and attaches it to
+// inboundID. If client.ID is empty, the panel generates a fresh VLESS UUID
+// server-side and ignores a client-supplied one silently on some builds —
+// always pass an explicit ID when the caller (e.g. clients.Service) needs
+// to control the credential value.
 func (p *Panel) AddClient(ctx context.Context, inboundID int, client Client) error {
-	settings, err := marshalClientSettings(client)
-	if err != nil {
-		return err
-	}
-
-	_, err = p.do(ctx, http.MethodPost, inboundsPath+"/addClient", addClientRequest{
-		ID:       inboundID,
-		Settings: settings,
+	_, err := p.do(ctx, http.MethodPost, clientsPath+"/add", addClientRequest{
+		Client:     client,
+		InboundIDs: []int{inboundID},
 	})
 	return err
 }
 
-func (p *Panel) UpdateClient(ctx context.Context, inboundID int, clientUUID string, client Client) error {
-	settings, err := marshalClientSettings(client)
-	if err != nil {
-		return err
-	}
-
-	path := fmt.Sprintf("%s/updateClient/%s", inboundsPath, url.PathEscape(clientUUID))
-	_, err = p.do(ctx, http.MethodPost, path, addClientRequest{
-		ID:       inboundID,
-		Settings: settings,
-	})
+// UpdateClient replaces the client record identified by email — this is a
+// full overwrite, not a partial patch: any field left at its zero value
+// (e.g. Enable omitted) is written as that zero value, silently disabling
+// or clearing the field. Callers must always send the complete desired
+// record. Inbound attachment is untouched by this call.
+func (p *Panel) UpdateClient(ctx context.Context, email string, client Client) error {
+	path := fmt.Sprintf("%s/update/%s", clientsPath, url.PathEscape(email))
+	_, err := p.do(ctx, http.MethodPost, path, client)
 	return err
 }
 
-func (p *Panel) DeleteClient(ctx context.Context, inboundID int, clientUUID string) error {
-	path := fmt.Sprintf("%s/%d/delClient/%s", inboundsPath, inboundID, url.PathEscape(clientUUID))
+// DeleteClient removes the client record identified by email.
+func (p *Panel) DeleteClient(ctx context.Context, email string) error {
+	path := fmt.Sprintf("%s/del/%s", clientsPath, url.PathEscape(email))
 	_, err := p.do(ctx, http.MethodPost, path, nil)
 	return err
 }
 
 // GetClientTraffics fetches usage/quota info by client email.
 func (p *Panel) GetClientTraffics(ctx context.Context, email string) (*ClientTraffic, error) {
-	path := fmt.Sprintf("%s/getClientTraffics/%s", inboundsPath, url.PathEscape(email))
+	path := fmt.Sprintf("%s/traffic/%s", clientsPath, url.PathEscape(email))
 	obj, err := p.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, err
@@ -161,28 +162,4 @@ func (p *Panel) GetClientTraffics(ctx context.Context, email string) (*ClientTra
 		return nil, fmt.Errorf("decode client traffic: %w", err)
 	}
 	return &traffic, nil
-}
-
-// GetClientTrafficsByID fetches usage/quota info by client UUID. 3x-ui may
-// return more than one entry if the UUID exists across multiple inbounds.
-func (p *Panel) GetClientTrafficsByID(ctx context.Context, uuid string) ([]ClientTraffic, error) {
-	path := fmt.Sprintf("%s/getClientTrafficsById/%s", inboundsPath, url.PathEscape(uuid))
-	obj, err := p.do(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var traffics []ClientTraffic
-	if err := json.Unmarshal(obj, &traffics); err != nil {
-		return nil, fmt.Errorf("decode client traffics: %w", err)
-	}
-	return traffics, nil
-}
-
-func marshalClientSettings(client Client) (string, error) {
-	b, err := json.Marshal(clientSettings{Clients: []Client{client}})
-	if err != nil {
-		return "", fmt.Errorf("marshal client settings: %w", err)
-	}
-	return string(b), nil
 }

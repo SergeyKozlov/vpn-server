@@ -101,7 +101,7 @@ func TestCreateSuccess(t *testing.T) {
 	var addClientBody []byte
 	panel := newMockXUIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		calls = append(calls, r.Method+" "+r.URL.Path)
-		if strings.Contains(r.URL.Path, "addClient") {
+		if strings.HasSuffix(r.URL.Path, "/clients/add") {
 			addClientBody, _ = io.ReadAll(r.Body)
 		}
 		alwaysSuccess(w, r)
@@ -126,24 +126,15 @@ func TestCreateSuccess(t *testing.T) {
 		t.Errorf("missing generated identifiers: %+v", c)
 	}
 
-	if len(calls) != 1 || calls[0] != "POST /panel/api/inbounds/addClient" {
+	if len(calls) != 1 || calls[0] != "POST /panel/api/clients/add" {
 		t.Errorf("unexpected xui calls: %v", calls)
 	}
 
 	// The exact payload xui.AddClient sent must reflect the generated
-	// identity and requested limits.
+	// identity and requested limits — a flat client object plus explicit
+	// inboundIds, not the old escaped-"settings"-string shape.
 	var reqBody struct {
-		ID       int    `json:"id"`
-		Settings string `json:"settings"`
-	}
-	if err := json.Unmarshal(addClientBody, &reqBody); err != nil {
-		t.Fatalf("unmarshal addClient request: %v", err)
-	}
-	if reqBody.ID != 1 {
-		t.Errorf("addClient inbound id = %d, want 1", reqBody.ID)
-	}
-	var settings struct {
-		Clients []struct {
+		Client struct {
 			ID         string `json:"id"`
 			Email      string `json:"email"`
 			Flow       string `json:"flow"`
@@ -152,15 +143,16 @@ func TestCreateSuccess(t *testing.T) {
 			LimitIP    int    `json:"limitIp"`
 			TotalGB    int64  `json:"totalGB"`
 			SubID      string `json:"subId"`
-		} `json:"clients"`
+		} `json:"client"`
+		InboundIDs []int `json:"inboundIds"`
 	}
-	if err := json.Unmarshal([]byte(reqBody.Settings), &settings); err != nil {
-		t.Fatalf("unmarshal addClient settings: %v", err)
+	if err := json.Unmarshal(addClientBody, &reqBody); err != nil {
+		t.Fatalf("unmarshal addClient request: %v", err)
 	}
-	if len(settings.Clients) != 1 {
-		t.Fatalf("settings.clients = %+v, want 1 entry", settings.Clients)
+	if len(reqBody.InboundIDs) != 1 || reqBody.InboundIDs[0] != 1 {
+		t.Errorf("addClient inboundIds = %v, want [1]", reqBody.InboundIDs)
 	}
-	got := settings.Clients[0]
+	got := reqBody.Client
 	if got.ID != c.VlessUUID {
 		t.Errorf("client id = %q, want %q", got.ID, c.VlessUUID)
 	}
@@ -297,7 +289,7 @@ func TestCreateRollsBackOnHysteriaFailure(t *testing.T) {
 
 	var deleteCalled bool
 	panel := newMockXUIServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "delClient") {
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/panel/api/clients/del/") {
 			deleteCalled = true
 		}
 		alwaysSuccess(w, r)

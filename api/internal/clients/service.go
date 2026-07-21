@@ -105,8 +105,8 @@ func (s *Service) Create(ctx context.Context, params CreateParams) (*Client, err
 	}
 
 	if err := s.syncHysteriaUsers(ctx); err != nil {
-		if delErr := s.vless.RemoveUser(ctx, "vless_reality", vlessUUID); delErr != nil {
-			log.Printf("clients: rollback: failed to delete xui client %s after hysteria sync failure: %v", vlessUUID, delErr)
+		if delErr := s.vless.RemoveUser(ctx, "vless_reality", email); delErr != nil {
+			log.Printf("clients: rollback: failed to delete xui client %s after hysteria sync failure: %v", email, delErr)
 		}
 		s.deleteClientRow(ctx, id)
 		return nil, fmt.Errorf("sync hysteria users: %w", err)

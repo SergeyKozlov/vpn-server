@@ -66,8 +66,8 @@ func TestAddClientRequestShape(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", gotMethod)
 	}
-	if gotPath != "/base/panel/api/inbounds/addClient" {
-		t.Errorf("path = %q, want /base/panel/api/inbounds/addClient", gotPath)
+	if gotPath != "/base/panel/api/clients/add" {
+		t.Errorf("path = %q, want /base/panel/api/clients/add", gotPath)
 	}
 	if gotAuth != "Bearer test-token" {
 		t.Errorf("Authorization = %q, want Bearer test-token", gotAuth)
@@ -75,17 +75,15 @@ func TestAddClientRequestShape(t *testing.T) {
 	if gotContentType != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", gotContentType)
 	}
-	if gotBody.ID != 1 {
-		t.Errorf("id = %d, want 1", gotBody.ID)
-	}
 
-	// settings must be a *string* containing JSON, not a nested object.
-	var settings clientSettings
-	if err := json.Unmarshal([]byte(gotBody.Settings), &settings); err != nil {
-		t.Fatalf("settings is not valid JSON: %v", err)
+	// The client record is a flat JSON object under "client", not an
+	// escaped-string "settings" blob — and the inbound association is
+	// explicit via top-level "inboundIds".
+	if gotBody.Client != client {
+		t.Errorf("client = %+v, want %+v", gotBody.Client, client)
 	}
-	if len(settings.Clients) != 1 || settings.Clients[0].ID != client.ID {
-		t.Errorf("settings.clients = %+v, want [%+v]", settings.Clients, client)
+	if len(gotBody.InboundIDs) != 1 || gotBody.InboundIDs[0] != 1 {
+		t.Errorf("inboundIds = %v, want [1]", gotBody.InboundIDs)
 	}
 }
 
@@ -98,18 +96,19 @@ func TestUpdateAndDeleteClientPaths(t *testing.T) {
 		json.NewEncoder(w).Encode(envelope{Success: true})
 	})
 
+	email := "user_ab12cd"
 	uuid := "95e4e7bb-7f3e-4a1e-9d6a-0b2c3d4e5f60"
 
-	if err := p.UpdateClient(context.Background(), 1, uuid, Client{ID: uuid}); err != nil {
+	if err := p.UpdateClient(context.Background(), email, Client{ID: uuid, Email: email}); err != nil {
 		t.Fatalf("UpdateClient: %v", err)
 	}
-	if err := p.DeleteClient(context.Background(), 1, uuid); err != nil {
+	if err := p.DeleteClient(context.Background(), email); err != nil {
 		t.Fatalf("DeleteClient: %v", err)
 	}
 
 	want := []string{
-		"/base/panel/api/inbounds/updateClient/" + uuid,
-		"/base/panel/api/inbounds/1/delClient/" + uuid,
+		"/base/panel/api/clients/update/" + email,
+		"/base/panel/api/clients/del/" + email,
 	}
 	if len(gotPaths) != len(want) {
 		t.Fatalf("got %d requests, want %d", len(gotPaths), len(want))
@@ -121,9 +120,30 @@ func TestUpdateAndDeleteClientPaths(t *testing.T) {
 	}
 }
 
+func TestUpdateClientSendsFlatClientBody(t *testing.T) {
+	var gotBody Client
+
+	p, _ := newTestPanel(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(envelope{Success: true})
+	})
+
+	client := Client{ID: "uuid-1", Email: "user_ab12cd", Enable: true, LimitIP: 3}
+	if err := p.UpdateClient(context.Background(), client.Email, client); err != nil {
+		t.Fatalf("UpdateClient: %v", err)
+	}
+
+	if gotBody != client {
+		t.Errorf("request body = %+v, want %+v", gotBody, client)
+	}
+}
+
 func TestGetClientTraffics(t *testing.T) {
 	p, _ := newTestPanel(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/base/panel/api/inbounds/getClientTraffics/user_ab12cd" {
+		if r.URL.Path != "/base/panel/api/clients/traffic/user_ab12cd" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)

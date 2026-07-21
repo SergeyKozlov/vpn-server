@@ -28,6 +28,12 @@ type TrafficStats struct {
 }
 
 // EdgeProvisioner manages one user's presence on one protocol's edge state.
+//
+// The bare "identifier" string in RemoveUser/GetTraffic is the human-facing
+// lookup key each edge system keys its records by — Hysteria2's userpass
+// map key (username) and 3x-ui's client record (email, since v3.5.0's
+// standalone /panel/api/clients/* API looks clients up by email, not by
+// VLESS UUID). It is not the secret credential.
 type EdgeProvisioner interface {
 	AddUser(ctx context.Context, cred UserCredentialInput) error
 	RemoveUser(ctx context.Context, protocol, identifier string) error

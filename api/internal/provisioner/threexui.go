@@ -26,26 +26,27 @@ func (p *ThreeXUIProvisioner) AddUser(ctx context.Context, cred UserCredentialIn
 	return p.panel.AddClient(ctx, p.inboundID, p.toXUIClient(cred))
 }
 
+// RemoveUser deletes the client record by email — identifier must be the
+// client's email (3x-ui's lookup key since v3.5.0), not the VLESS UUID.
 func (p *ThreeXUIProvisioner) RemoveUser(ctx context.Context, protocol, identifier string) error {
 	if protocol != "vless_reality" {
 		return fmt.Errorf("threexui: unsupported protocol %q", protocol)
 	}
-	return p.panel.DeleteClient(ctx, p.inboundID, identifier)
+	return p.panel.DeleteClient(ctx, identifier)
 }
 
 func (p *ThreeXUIProvisioner) RotateCredential(ctx context.Context, old, new UserCredentialInput) error {
-	return p.panel.UpdateClient(ctx, p.inboundID, old.Identifier, p.toXUIClient(new))
+	return p.panel.UpdateClient(ctx, old.Email, p.toXUIClient(new))
 }
 
+// GetTraffic fetches usage by email — identifier must be the client's
+// email, not the VLESS UUID (see RemoveUser).
 func (p *ThreeXUIProvisioner) GetTraffic(ctx context.Context, identifier string) (TrafficStats, error) {
-	traffics, err := p.panel.GetClientTrafficsByID(ctx, identifier)
+	traffic, err := p.panel.GetClientTraffics(ctx, identifier)
 	if err != nil {
 		return TrafficStats{}, err
 	}
-	if len(traffics) == 0 {
-		return TrafficStats{}, fmt.Errorf("threexui: no traffic stats for %s", identifier)
-	}
-	return TrafficStats{Up: traffics[0].Up, Down: traffics[0].Down}, nil
+	return TrafficStats{Up: traffic.Up, Down: traffic.Down}, nil
 }
 
 func (p *ThreeXUIProvisioner) toXUIClient(cred UserCredentialInput) xui.Client {

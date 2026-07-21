@@ -10,34 +10,32 @@ type envelope struct {
 }
 
 // Client is a single VLESS client entry, as sent to/read from the
-// addClient/updateClient/inbound "settings" JSON.
+// /panel/api/clients/* endpoints (standalone client records since 3x-ui
+// v3.5.0 — no longer nested inside an inbound's "settings" JSON).
 type Client struct {
-	ID         string `json:"id"`             // VLESS UUID
-	Email      string `json:"email"`          // unique identifier, not a real email
+	ID         string `json:"id,omitempty"`   // VLESS UUID; server-generated if omitted on add
+	Email      string `json:"email"`          // unique across the whole panel; primary identifier
 	Flow       string `json:"flow,omitempty"` // "xtls-rprx-vision" for VLESS Reality Vision
 	Enable     bool   `json:"enable"`
 	ExpiryTime int64  `json:"expiryTime"` // epoch milliseconds, 0 = never
 	LimitIP    int    `json:"limitIp"`    // max concurrent IPs, 0 = unlimited
 	TotalGB    int64  `json:"totalGB"`    // bytes, 0 = unlimited
-	TgID       string `json:"tgId,omitempty"`
+	TgID       int64  `json:"tgId"`       // must be numeric; a "" string 400s on v3.5.0
 	SubID      string `json:"subId,omitempty"`
+	Comment    string `json:"comment,omitempty"`
 	Reset      int    `json:"reset"` // traffic reset period in days, 0 = never
 }
 
-// clientSettings is marshaled to a string and sent as the "settings" field
-// of addClient/updateClient requests — 3x-ui expects stringified JSON there,
-// not a nested object.
-type clientSettings struct {
-	Clients []Client `json:"clients"`
-}
-
+// addClientRequest is the /panel/api/clients/add body: the client record
+// plus which inbound(s) to attach it to (a client is no longer embedded in
+// one inbound's settings, so the association is explicit).
 type addClientRequest struct {
-	ID       int    `json:"id"`
-	Settings string `json:"settings"`
+	Client     Client `json:"client"`
+	InboundIDs []int  `json:"inboundIds"`
 }
 
 // ClientTraffic is per-client usage/quota info, as returned by
-// getClientTraffics/getClientTrafficsById and embedded in Inbound.ClientStats.
+// /panel/api/clients/traffic/{email} and embedded in Inbound.ClientStats.
 type ClientTraffic struct {
 	ID         int    `json:"id"`
 	InboundID  int    `json:"inboundId"`
