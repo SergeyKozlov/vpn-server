@@ -8,6 +8,7 @@ hysteria/config.yaml
 
 # Go
 api/vpn-api
+api/vpn-createadmin
 *.exe
 *.test
 *.out

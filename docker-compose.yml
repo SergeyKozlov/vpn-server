@@ -28,6 +28,20 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build: ./api
+    container_name: vpn-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vpn-net
+    ports:
+      - "127.0.0.1:8080:8080"
+
   hysteria2:
     image: tobyxdd/hysteria:latest
     container_name: hysteria2
