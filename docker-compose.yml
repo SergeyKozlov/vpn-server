@@ -41,6 +41,8 @@ services:
       - vpn-net
     ports:
       - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   hysteria2:
     image: tobyxdd/hysteria:latest
